@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import json
 import re
-import sys
 from pathlib import Path
+
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 
 TREE_PATH = Path(__file__).resolve().parent.parent / "tree" / "reflection-tree.json"
@@ -12,6 +15,7 @@ AXIS_SIDES = {
     "axis2": ("contribution", "entitlement"),
     "axis3": ("self", "other"),
 }
+TOTAL_QUESTIONS_PER_RUN = 7
 
 SUMMARY_TEMPLATES = {
     "internal|contribution|self": (
@@ -320,108 +324,145 @@ def increment_signal(signal: str, tallies: dict[str, dict[str, int]]) -> None:
     tallies[axis][side] += 1
 
 
-def print_block(text: str) -> None:
-    print("\n" + "=" * 72)
-    print(text)
-    print("=" * 72 + "\n")
+tree_nodes = load_tree(TREE_PATH)
+node_map = build_node_map(tree_nodes)
+child_map = build_child_map(tree_nodes)
+validate_tree(tree_nodes, node_map, child_map)
+
+app = FastAPI(title="Daily Reflection Tree API")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+sessions: dict[str, dict] = {}
 
 
-def prompt_for_choice(options: list[str]) -> str:
+class UserInput(BaseModel):
+    user_id: str
+    answer: str | None = None
+
+
+def get_session(user_id: str) -> dict:
+    session = sessions.get(user_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Session not found. Start a new reflection.")
+    return session
+
+
+def serialize_path(path: list[tuple[str, str]]) -> list[dict[str, str]]:
+    return [{"node_id": node_id, "answer": answer} for node_id, answer in path]
+
+
+def serialize_current_node(session: dict) -> dict:
+    node = node_map[session["current_id"]]
+    node_type = node["type"]
+    text = interpolate(node["text"], session["state"], session["tallies"])
+
+    if node_type == "question":
+        return {
+            "type": "question",
+            "text": text,
+            "options": node["options"],
+            "question_number": len(session["path"]) + 1,
+            "total_questions": TOTAL_QUESTIONS_PER_RUN,
+        }
+
+    if node_type in {"reflection", "bridge"}:
+        return {
+            "type": node_type,
+            "text": text,
+        }
+
+    if node_type == "summary":
+        return {
+            "type": "summary",
+            "text": text,
+            "path": serialize_path(session["path"]),
+        }
+
+    if node_type == "end":
+        return {
+            "type": "end",
+            "text": text,
+        }
+
+    raise HTTPException(status_code=500, detail=f"Unsupported renderable node type: {node_type}")
+
+
+def advance_to_renderable_node(session: dict) -> dict:
     while True:
-        try:
-            raw = input("Choose an option number: ").strip()
-        except KeyboardInterrupt:
-            print("\n\nReflection interrupted. Exiting cleanly.")
-            raise SystemExit(0)
-
-        if raw.isdigit():
-            index = int(raw)
-            if 1 <= index <= len(options):
-                return options[index - 1]
-
-        print(f"Please enter a number from 1 to {len(options)}.")
-
-
-def run(tree_nodes: list[dict]) -> None:
-    node_map = build_node_map(tree_nodes)
-    child_map = build_child_map(tree_nodes)
-    validate_tree(tree_nodes, node_map, child_map)
-
-    state: dict[str, str] = {}
-    tallies = fresh_tallies()
-    current_id = "START"
-    path: list[tuple[str, str]] = []
-
-    while True:
-        node = node_map[current_id]
+        node = node_map[session["current_id"]]
         node_type = node["type"]
-        rendered_text = interpolate(node["text"], state, tallies)
 
         if node_type == "start":
-            print_block(rendered_text)
-            current_id = next_child(current_id, child_map)
-            continue
-
-        if node_type == "question":
-            print_block(rendered_text)
-            for idx, option in enumerate(node["options"], start=1):
-                print(f"{idx}. {option}")
-            print()
-
-            selected = prompt_for_choice(node["options"])
-            state[current_id] = selected
-            path.append((current_id, selected))
-            increment_signal(node["signal"], tallies)
-            current_id = next_child(current_id, child_map)
+            session["current_id"] = next_child(session["current_id"], child_map)
             continue
 
         if node_type == "decision":
-            current_id = evaluate_decision(node, state)
+            session["current_id"] = evaluate_decision(node, session["state"])
             continue
 
-        if node_type == "reflection":
-            print_block(rendered_text)
-            input("Press Enter to continue...")
-            current_id = next_child(current_id, child_map)
-            continue
-
-        if node_type == "bridge":
-            print_block(rendered_text)
-            input("Press Enter to continue...")
-            current_id = node["target"]
-            continue
-
-        if node_type == "summary":
-            print_block(rendered_text)
-            print("--- Reflection Trace ---")
-            for node_id, answer in path:
-                print(f"{node_id}: {answer}")
-            input("\nPress Enter to continue...")
-            current_id = next_child(current_id, child_map)
-            continue
-
-        if node_type == "end":
-            print_block(rendered_text)
-            return
-
-        raise ValueError(f"Unsupported node type encountered: {node_type}")
+        return serialize_current_node(session)
 
 
-def main() -> int:
-    try:
-        tree_nodes = load_tree(TREE_PATH)
-        run(tree_nodes)
-        return 0
-    except FileNotFoundError:
-        print(f"Tree file not found: {TREE_PATH}", file=sys.stderr)
-        return 1
-    except KeyboardInterrupt:
-        print("\n\nReflection interrupted. Exiting cleanly.")
-        return 0
-    except Exception as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
+@app.get("/health")
+def health() -> dict:
+    return {"status": "ok", "nodes": len(tree_nodes)}
+
+
+@app.post("/start")
+def start(user: UserInput) -> dict:
+    sessions[user.user_id] = {
+        "state": {},
+        "tallies": fresh_tallies(),
+        "current_id": "START",
+        "path": [],
+    }
+    return advance_to_renderable_node(sessions[user.user_id])
+
+
+@app.post("/answer")
+def answer(user: UserInput) -> dict:
+    session = get_session(user.user_id)
+    node = node_map[session["current_id"]]
+
+    if node["type"] != "question":
+        raise HTTPException(status_code=400, detail="Current step does not accept an answer.")
+
+    if user.answer is None or user.answer not in node["options"]:
+        raise HTTPException(status_code=400, detail="Answer must match one of the provided options.")
+
+    session["state"][session["current_id"]] = user.answer
+    session["path"].append((session["current_id"], user.answer))
+    increment_signal(node["signal"], session["tallies"])
+    session["current_id"] = next_child(session["current_id"], child_map)
+
+    return advance_to_renderable_node(session)
+
+
+@app.post("/continue")
+def continue_flow(user: UserInput) -> dict:
+    session = get_session(user.user_id)
+    node = node_map[session["current_id"]]
+    node_type = node["type"]
+
+    if node_type == "reflection":
+        session["current_id"] = next_child(session["current_id"], child_map)
+    elif node_type == "bridge":
+        session["current_id"] = node["target"]
+    elif node_type == "summary":
+        session["current_id"] = next_child(session["current_id"], child_map)
+    else:
+        raise HTTPException(status_code=400, detail="Current step does not support continue.")
+
+    return advance_to_renderable_node(session)
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    import uvicorn
+
+    uvicorn.run(app, host="127.0.0.1", port=8000)
