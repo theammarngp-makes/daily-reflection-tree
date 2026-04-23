@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Daily Reflection Tree</title>
+  <style>
+    :root {
+      --bg-1: #f2eadf;
+      --bg-2: #d9e4dd;
+      --panel: rgba(255, 252, 247, 0.88);
+      --ink: #1f2a2a;
+      --muted: #5f6b68;
+      --accent: #a4512d;
+      --accent-dark: #7a391c;
+      --line: rgba(31, 42, 42, 0.12);
+      --shadow: 0 22px 50px rgba(36, 41, 38, 0.14);
+      --radius: 24px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(164, 81, 45, 0.18), transparent 28%),
+        radial-gradient(circle at bottom right, rgba(106, 142, 123, 0.22), transparent 32%),
+        linear-gradient(135deg, var(--bg-1), var(--bg-2));
+      display: grid;
+      place-items: center;
+      padding: 28px 16px;
+    }
+
+    .shell {
+      width: min(760px, 100%);
+      position: relative;
+    }
+
+    .glow {
+      position: absolute;
+      inset: auto 8% -48px auto;
+      width: 180px;
+      height: 180px;
+      background: rgba(164, 81, 45, 0.14);
+      filter: blur(28px);
+      border-radius: 50%;
+      pointer-events: none;
+    }
+
+    .card {
+      position: relative;
+      overflow: hidden;
+      background: var(--panel);
+      border: 1px solid rgba(255, 255, 255, 0.45);
+      backdrop-filter: blur(18px);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 30px;
+    }
+
+    .card::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(120deg, rgba(255, 255, 255, 0.22), transparent 35%),
+        linear-gradient(transparent, rgba(255, 255, 255, 0.08));
+      pointer-events: none;
+    }
+
+    .eyebrow {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 22px;
+      color: var(--muted);
+      font-size: 0.92rem;
+      letter-spacing: 0.02em;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 8px 14px;
+      background: rgba(255, 255, 255, 0.52);
+    }
+
+    .badge-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 0 6px rgba(164, 81, 45, 0.12);
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: clamp(2rem, 3vw, 2.9rem);
+      font-weight: 600;
+      line-height: 1.05;
+      max-width: 12ch;
+    }
+
+    .intro {
+      margin: 0 0 26px;
+      color: var(--muted);
+      font-size: 1rem;
+      line-height: 1.6;
+      max-width: 58ch;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.68);
+      padding: 22px;
+      min-height: 240px;
+    }
+
+    .status {
+      margin: 0 0 12px;
+      color: var(--accent-dark);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      font-size: 0.76rem;
+      font-weight: 700;
+    }
+
+    .question {
+      margin: 0;
+      font-size: clamp(1.3rem, 2vw, 1.65rem);
+      line-height: 1.45;
+      white-space: pre-wrap;
+    }
+
+    .options,
+    .path,
+    .controls {
+      margin-top: 22px;
+      display: grid;
+      gap: 12px;
+    }
+
+    button {
+      border: 0;
+      border-radius: 16px;
+      padding: 16px 18px;
+      font: inherit;
+      font-size: 1rem;
+      line-height: 1.4;
+      cursor: pointer;
+      transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: wait;
+      transform: none;
+    }
+
+    .option-btn,
+    .secondary-btn {
+      text-align: left;
+      background: rgba(255, 255, 255, 0.94);
+      color: var(--ink);
+      border: 1px solid rgba(31, 42, 42, 0.1);
+      box-shadow: 0 14px 28px rgba(44, 49, 46, 0.08);
+    }
+
+    .option-btn:hover,
+    .secondary-btn:hover {
+      background: #fff;
+      box-shadow: 0 18px 30px rgba(44, 49, 46, 0.12);
+    }
+
+    .primary-btn {
+      background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+      color: #fffaf4;
+      box-shadow: 0 18px 30px rgba(122, 57, 28, 0.26);
+    }
+
+    .primary-btn:hover {
+      box-shadow: 0 22px 36px rgba(122, 57, 28, 0.32);
+    }
+
+    .note,
+    .error {
+      margin-top: 18px;
+      padding: 14px 16px;
+      border-radius: 14px;
+      font-size: 0.95rem;
+      line-height: 1.55;
+      white-space: pre-wrap;
+    }
+
+    .note {
+      background: rgba(106, 142, 123, 0.12);
+      color: #345246;
+      border: 1px solid rgba(106, 142, 123, 0.14);
+    }
+
+    .error {
+      display: none;
+      background: rgba(153, 52, 33, 0.12);
+      color: #6b2415;
+      border: 1px solid rgba(153, 52, 33, 0.16);
+    }
+
+    .path-item {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 14px 16px;
+      background: rgba(255, 255, 255, 0.72);
+    }
+
+    .path-label {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--muted);
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    @media (max-width: 640px) {
+      .card {
+        padding: 22px;
+      }
+
+      .eyebrow {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="glow"></div>
+    <section class="card">
+      <div class="eyebrow">
+        <div class="badge">
+          <span class="badge-dot"></span>
+          <span>Deterministic reflection flow</span>
+        </div>
+        <div id="progressText">Connecting to local API</div>
+      </div>
+
+      <h1>Daily Reflection Tree</h1>
+      <p class="intro">
+        Three passes, one conversation: control, contribution, and the size of the frame.
+        The browser version now shows every reflection and bridge step instead of skipping straight through them.
+      </p>
+
+      <section class="panel">
+        <div id="stepType" class="status">Loading</div>
+        <p id="question" class="question">Starting your local reflection session...</p>
+        <div id="options" class="options"></div>
+        <div id="path" class="path"></div>
+        <div id="message" class="note" style="display:none;"></div>
+        <div id="error" class="error"></div>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const API_BASE = "http://127.0.0.1:8000";
+    const USER_KEY = "daily-reflection-user-id";
+    const questionEl = document.getElementById("question");
+    const optionsEl = document.getElementById("options");
+    const pathEl = document.getElementById("path");
+    const progressTextEl = document.getElementById("progressText");
+    const errorEl = document.getElementById("error");
+    const messageEl = document.getElementById("message");
+    const stepTypeEl = document.getElementById("stepType");
+
+    let busy = false;
+    let userId = localStorage.getItem(USER_KEY);
+
+    if (!userId) {
+      userId = window.crypto?.randomUUID ? crypto.randomUUID() : `user-${Date.now()}`;
+      localStorage.setItem(USER_KEY, userId);
+    }
+
+    function setBusy(nextBusy) {
+      busy = nextBusy;
+      document.querySelectorAll("button").forEach((button) => {
+        button.disabled = nextBusy;
+      });
+    }
+
+    function showError(message) {
+      errorEl.textContent = message;
+      errorEl.style.display = "block";
+    }
+
+    function clearError() {
+      errorEl.textContent = "";
+      errorEl.style.display = "none";
+    }
+
+    function showMessage(text = "") {
+      if (!text) {
+        messageEl.style.display = "none";
+        messageEl.textContent = "";
+        return;
+      }
+      messageEl.textContent = text;
+      messageEl.style.display = "block";
+    }
+
+    async function request(path, payload) {
+      setBusy(true);
+      clearError();
+
+      try {
+        const response = await fetch(`${API_BASE}${path}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.detail || `Request failed with status ${response.status}`);
+        }
+        return data;
+      } catch (error) {
+        showError(
+          `${error.message}\n\nMake sure the FastAPI server is running locally at ${API_BASE}.`
+        );
+        throw error;
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    function makeButton(label, className, onClick) {
+      const button = document.createElement("button");
+      button.className = className;
+      button.textContent = label;
+      button.onclick = onClick;
+      if (busy) {
+        button.disabled = true;
+      }
+      return button;
+    }
+
+    function renderPath(path = []) {
+      pathEl.innerHTML = "";
+      if (!path.length) {
+        return;
+      }
+
+      path.forEach((item, index) => {
+        const card = document.createElement("div");
+        card.className = "path-item";
+
+        const label = document.createElement("span");
+        label.className = "path-label";
+        label.textContent = `Step ${index + 1} - ${item.node_id}`;
+
+        const text = document.createElement("div");
+        text.textContent = item.answer;
+
+        card.appendChild(label);
+        card.appendChild(text);
+        pathEl.appendChild(card);
+      });
+    }
+
+    function render(step) {
+      optionsEl.innerHTML = "";
+      pathEl.innerHTML = "";
+      showMessage("");
+
+      questionEl.textContent = step.text || "No content returned from the server.";
+
+      if (step.type === "question") {
+        stepTypeEl.textContent = "Question";
+        progressTextEl.textContent = `Question ${step.question_number} of ${step.total_questions}`;
+
+        step.options.forEach((option) => {
+          optionsEl.appendChild(
+            makeButton(option, "option-btn", async () => {
+              const next = await request("/answer", { user_id: userId, answer: option });
+              render(next);
+            })
+          );
+        });
+        return;
+      }
+
+      if (step.type === "reflection") {
+        stepTypeEl.textContent = "Reflection";
+        progressTextEl.textContent = "Pause and notice";
+        showMessage("This step is intentionally slow. Let the sentence land before continuing.");
+        optionsEl.appendChild(
+          makeButton("Continue", "primary-btn", async () => {
+            const next = await request("/continue", { user_id: userId });
+            render(next);
+          })
+        );
+        return;
+      }
+
+      if (step.type === "bridge") {
+        stepTypeEl.textContent = "Bridge";
+        progressTextEl.textContent = "Transition";
+        showMessage("This is the handoff between branches so the conversation feels continuous.");
+        optionsEl.appendChild(
+          makeButton("Continue", "primary-btn", async () => {
+            const next = await request("/continue", { user_id: userId });
+            render(next);
+          })
+        );
+        return;
+      }
+
+      if (step.type === "summary") {
+        stepTypeEl.textContent = "Summary";
+        progressTextEl.textContent = "Reflection complete";
+        showMessage("This summary is deterministic. It is assembled from your path through the authored tree.");
+        renderPath(step.path || []);
+        optionsEl.appendChild(
+          makeButton("See closing note", "primary-btn", async () => {
+            const next = await request("/continue", { user_id: userId });
+            render(next);
+          })
+        );
+        optionsEl.appendChild(
+          makeButton("Start again", "secondary-btn", async () => {
+            const next = await request("/start", { user_id: userId });
+            render(next);
+          })
+        );
+        return;
+      }
+
+      if (step.type === "end") {
+        stepTypeEl.textContent = "Done";
+        progressTextEl.textContent = "Session finished";
+        showMessage("You can restart with the same local browser session whenever you want.");
+        optionsEl.appendChild(
+          makeButton("Restart reflection", "primary-btn", async () => {
+            const next = await request("/start", { user_id: userId });
+            render(next);
+          })
+        );
+        return;
+      }
+
+      stepTypeEl.textContent = "Unknown step";
+      progressTextEl.textContent = "Check API response";
+      showError(`Unexpected step type: ${step.type}`);
+    }
+
+    async function start() {
+      try {
+        const step = await request("/start", { user_id: userId });
+        render(step);
+      } catch (_) {
+        stepTypeEl.textContent = "Connection error";
+        progressTextEl.textContent = "API unavailable";
+      }
+    }
+
+    start();
+  </script>
+</body>
+</html>
