@@ -1,4 +1,4 @@
-# Write-up: Design Rationale — Daily Reflection Tree
+# Write-up: Design Rationale — Daily Reflection Tree.
 
 ## 1. Objective
 
